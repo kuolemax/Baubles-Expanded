@@ -87,7 +87,7 @@ public class ContainerPlayerExpanded extends Container {
             if (BaublesConfig.showUnusedSlots || !slotType.equals(BaubleExpandedSlots.unknownType)) {
                 Slot slot = useOldGuiRendering
                     ? new SlotBauble(baubles, slotType, i, slotStartX + (slotOffset * (i / 4)), slotStartY + (slotOffset * (i % 4)))
-                    : new SlotBauble(baubles, slotType, i, -18, 12 + (slotOffset * i));
+                    : new SlotBauble(baubles, slotType, i, -18 - (slotOffset * (i / 5)) * 26, 12 + (slotOffset * (i % 5)));
 
                 addSlotToContainer(slot);
                 baubleSlotCount++;
@@ -158,32 +158,12 @@ public class ContainerPlayerExpanded extends Container {
     }
 
     public void scrollTo(float offset) {
-        if (!canScroll()) return;
-        final int activeBaubleSlots = BaubleExpandedSlots.slotsCurrentlyUsed();
-
-        offset = Math.max(0, Math.min(1, offset));
-
-        int shownSlots = 8;
-        int slotOffset = (int) (offset * (activeBaubleSlots - shownSlots) + 0.5F);
-
-        if (slotOffset < 0) {
-            slotOffset = 0;
-        }
-
-        for (int i = 0; i < activeBaubleSlots && i < BaubleExpandedSlots.slotLimit; i++) {
-            Slot slot = (Slot) this.inventorySlots.get(baubleFirstSlotIndex + i);
-            if (i >= 0) {
-                slot.yDisplayPosition = (12 - (slotOffset * 18) + (i) * 18);
-                if (slot.yDisplayPosition < 12 || slot.yDisplayPosition > 8 * 18) {
-                    // Hide the rest of the slots!
-                    slot.yDisplayPosition = -2000;
-                }
-            }
-        }
+        // 禁用滚动功能，因为我们现在使用多列布局
+        return;
     }
 
     public boolean canScroll() {
-        return BaubleExpandedSlots.slotsCurrentlyUsed() > 8 && !useOldGuiRendering;
+        return false; // 禁用滚动，改为多列显示
     }
 
     @Override

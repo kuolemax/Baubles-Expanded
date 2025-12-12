@@ -1,7 +1,12 @@
 package baubles.client.gui;
 
 import baubles.api.IBauble;
+import baubles.api.expanded.BaubleExpandedSlots;
 import baubles.api.expanded.IBaubleExpanded;
+import baubles.common.Baubles;
+import baubles.common.BaublesConfig;
+import baubles.common.container.ContainerPlayerExpanded;
+import baubles.common.container.SlotBauble;
 import codechicken.lib.vec.Rectangle4i;
 import codechicken.nei.NEIClientConfig;
 import codechicken.nei.VisiblityData;
@@ -9,32 +14,26 @@ import codechicken.nei.api.INEIGuiHandler;
 import codechicken.nei.api.TaggedInventoryArea;
 import cpw.mods.fml.common.Loader;
 import cpw.mods.fml.common.Optional;
-
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.entity.EntityPlayerSP;
+import net.minecraft.client.gui.GuiButton;
+import net.minecraft.client.gui.achievement.GuiAchievements;
+import net.minecraft.client.gui.achievement.GuiStats;
 import net.minecraft.client.gui.inventory.GuiContainer;
 import net.minecraft.client.gui.inventory.GuiInventory;
 import net.minecraft.client.resources.I18n;
+import net.minecraft.client.resources.IResource;
+import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.inventory.Slot;
 import net.minecraft.item.ItemStack;
 import net.minecraft.potion.Potion;
 import net.minecraft.potion.PotionEffect;
-import net.minecraft.util.MathHelper;
-
+import net.minecraft.util.ResourceLocation;
 import net.minecraft.util.StatCollector;
-import org.lwjgl.input.Mouse;
 import org.lwjgl.opengl.GL11;
 
-import baubles.api.expanded.BaubleExpandedSlots;
-import baubles.common.Baubles;
-import baubles.common.BaublesConfig;
-import baubles.common.container.ContainerPlayerExpanded;
-import net.minecraft.client.gui.GuiButton;
-import net.minecraft.client.gui.achievement.GuiAchievements;
-import net.minecraft.client.gui.achievement.GuiStats;
-import net.minecraft.entity.player.EntityPlayer;
-import net.minecraft.util.ResourceLocation;
-
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -46,13 +45,13 @@ import static net.minecraft.client.gui.inventory.GuiInventory.func_147046_a;
 @Optional.Interface(iface = "codechicken.nei.api.INEIGuiHandler", modid = "NotEnoughItems")
 public class GuiPlayerExpanded extends GuiContainer implements INEIGuiHandler {
 
-    public static final ResourceLocation background = new ResourceLocation("baubles","textures/gui/bauble_inventory.png");
-    public static final ResourceLocation gui_background = new ResourceLocation("baubles","textures/gui/bauble_background.png");
+    public static final ResourceLocation background = new ResourceLocation("baubles", "textures/gui/bauble_inventory.png");
+    public static final ResourceLocation gui_background = new ResourceLocation("baubles", "textures/gui/bauble_background.png");
     private static final ResourceLocation creative_inventory_tabs = new ResourceLocation("textures/gui/container/creative_inventory/tabs.png");
 
     private static final boolean hasLwjgl3 = Loader.isModLoaded("lwjgl3ify");
 
-	/**
+    /**
      * x size of the inventory window in pixels. Defined as float, passed as int.
      */
     private float xSizeFloat;
@@ -83,9 +82,9 @@ public class GuiPlayerExpanded extends GuiContainer implements INEIGuiHandler {
      */
     @Override
     public void updateScreen() {
-    	try {
-			((ContainerPlayerExpanded) inventorySlots).baubles.blockEvents = false;
-		} catch (Exception ignored) {}
+        try {
+            ((ContainerPlayerExpanded) inventorySlots).baubles.blockEvents = false;
+        } catch (Exception ignored) {}
     }
 
     /**
@@ -110,7 +109,7 @@ public class GuiPlayerExpanded extends GuiContainer implements INEIGuiHandler {
         xSizeFloat = (float) mouseX;
         ySizeFloat = (float) mouseY;
 
-        if(BaublesConfig.displayTooltipOnHover) {
+        if (BaublesConfig.displayTooltipOnHover) {
             handleMouseHover(mouseX, mouseY);
         }
 
@@ -142,45 +141,120 @@ public class GuiPlayerExpanded extends GuiContainer implements INEIGuiHandler {
         func_147046_a(guiLeft + 51, guiTop + 75, 30, (float) (guiLeft + 51) - xSizeFloat, (float) (guiTop + 25) - ySizeFloat, mc.thePlayer);
     }
 
+    /**
+     * 绘制饰品槽位的背景和滚动条
+     * 根据是否使用旧版GUI渲染来决定绘制方式
+     * 在新版GUI中支持多列槽位显示和滚动条
+     */
     private void drawBaubleSlots() {
+        // 绘制主背景，覆盖整个GUI窗口区域
         drawTexturedModalRect(guiLeft, guiTop, 0, 0, xSize, ySize);
+        int bgColor = getPixelRGBA(gui_background, 5, 5);
+
+        // 计算上部高度，基于当前使用的槽位数量
+        // 公式：7（顶部边距）+ 槽数量 * 18（每个槽位18像素高）
         int upperHeight = 7 + BaubleExpandedSlots.slotsCurrentlyUsed() * 18;
+        final int maxSlotColumn = 8;
+
+        // 根据配置选择纹理，新版GUI使用独立的背景纹理
         if (!useOldGuiRendering) {
             this.mc.getTextureManager().bindTexture(gui_background);
         }
 
-        final int slotOffset = 18;
-        int slotStartX = guiLeft - 26;
-        int slotStartY = 12;
+        // 定义槽位偏移量和起始坐标
+        final int slotOffset = 18; // 槽位之间的间距为18像素
+        final int slotOffsetX = 21; // 列之间的水平间距
+        int slotStartX = guiLeft - 26; // 新版GUI中槽位列的起始X坐标（左侧）
+        int slotStartY = 12; // 新版GUI中槽位列的起始Y坐标
 
+        // 根据渲染模式设置不同的起始坐标和绘制逻辑
         if (useOldGuiRendering) {
-            slotStartX = guiLeft + 79;
-            slotStartY = guiTop + 7;
+            // 旧版GUI渲染模式：槽位显示在右侧单列
+            slotStartX = guiLeft + 79; // 旧版GUI中槽位列的起始X坐标（右侧）
+            slotStartY = guiTop + 7;   // 旧版GUI中槽位列的起始Y坐标
         } else {
-            if (BaubleExpandedSlots.slotsCurrentlyUsed() <= 8) {
+            // 新版GUI渲染模式处理
+            // 计算需要多少列（每列最多5个）
+            int slotsCurrentlyUsed = BaubleExpandedSlots.slotsCurrentlyUsed();
+            int columnsNeeded = (int) Math.ceil(slotsCurrentlyUsed * 1.0 / (maxSlotColumn * 1.0)); // 向上取整
+
+            if (columnsNeeded <= 1) {
+                // 只有一列时，绘制完整的背景
                 this.drawTexturedModalRect(this.guiLeft - 26, this.guiTop + 4, 0, 0, 27, upperHeight);
                 this.drawTexturedModalRect(this.guiLeft - 26, this.guiTop + 4 + upperHeight, 0, 151, 27, 7);
             } else {
-                this.drawTexturedModalRect(this.guiLeft - 26, this.guiTop + 4, 0, 0, 27, 158);
-                this.drawTexturedModalRect(this.guiLeft - 42, this.guiTop + 4, 27, 0, 23, 158);
-                this.mc.getTextureManager().bindTexture(creative_inventory_tabs);
-                this.drawTexturedModalRect(this.guiLeft - 34, this.guiTop + 12 + (int) (127f * this.currentScroll), 232, 0, 12, 15);
+                // 绘制多列背景
+                for (int col = 0; col < columnsNeeded; col++) {
+                    int columnX = this.guiLeft - 26 - (col * slotOffsetX);
+                    int currentUpperHeight = 7 + maxSlotColumn * 18;
+                    this.drawTexturedModalRect(columnX, this.guiTop + 4, 0, 0, 27, currentUpperHeight);
+                    this.drawTexturedModalRect(columnX, this.guiTop + 4 + currentUpperHeight, 0, 151, 27, 7);
+
+                    // 如果列内槽位数量不足 maxSlotColumn 个，则绘制占位符
+                    if (col == columnsNeeded - 1 && slotsCurrentlyUsed % maxSlotColumn != 0) {
+                        int noneSlots = slotsCurrentlyUsed % maxSlotColumn;
+                        int noneLeft = columnX + 7;
+                        int noneTop = 12 + 18 * (maxSlotColumn - slotsCurrentlyUsed / maxSlotColumn);
+                        int noneRight = noneLeft + 18;
+                        int noneBottom = noneTop + 18 * noneSlots;
+                        this.drawGradientRect(noneLeft, noneTop, noneRight, noneBottom, bgColor, bgColor);
+                    }
+                }
             }
         }
 
-        // Bauble slot backgrounds
-        for (int slotIndex = 0; slotIndex < BaubleExpandedSlots.slotLimit; slotIndex++) {
+        // 绘制饰品槽位背景并更新槽位位置
+        ContainerPlayerExpanded container = (ContainerPlayerExpanded) this.inventorySlots;
+        // 遍历所有饰品槽位
+        for (int slotIndex = 0; slotIndex < container.getBaubleSlotCount(); slotIndex++) {
+            SlotBauble slot = container.getBaubleSlot(slotIndex);
             String slotType = BaubleExpandedSlots.getSlotType(slotIndex);
+
+            // 如果配置不显示未使用槽位且当前槽位类型未知，则跳过绘制
+            // 这样可以隐藏玩家当前未解锁或未使用的槽位类型
             if (!BaublesConfig.showUnusedSlots && slotType.equals(BaubleExpandedSlots.unknownType)) {
                 continue;
             }
+
             if (useOldGuiRendering) {
+                // 旧版GUI：每列4个槽位的布局
+                // X坐标计算：起始X + (槽位索引/4) * 偏移量 （整数除法实现每4个槽位换一列）
+                // Y坐标计算：起始Y + (槽位索引%4) * 偏移量 （取模运算实现列内位置）
                 drawTexturedModalRect(slotStartX + (slotOffset * (slotIndex / 4)), slotStartY + (slotOffset * (slotIndex % 4)), 200, 0, 18, 18);
             } else {
-                drawTexturedModalRect(slotStartX + (slotOffset * (slotIndex / 4)), slotStartY + (slotOffset * slotIndex), 200, 0, 18, 18);
+                // 新版GUI：每列5个槽位的布局
+                // 计算当前槽位所在的列和行
+                int column = slotIndex / maxSlotColumn; // 列索引（每5个槽位换一列）
+                int row = slotIndex % maxSlotColumn;    // 行索引（在一列中的位置）
+                // 根据行列计算槽位的实际绘制位置
+                // drawTexturedModalRect(slotStartX + (slotOffset * (slotIndex / 4)), slotStartY + (slotOffset * (slotIndex % 4)), 200, 0, 18, 18);
+                int xPos = this.guiLeft - (column * slotOffsetX) - 19; // 每增加一列，X坐标向左移动
+                int yPos = slotStartY + (slotOffset * (row + 2));    // 每增加一行，Y坐标向下移动
+                // 绘制槽位背景纹理（200,0是纹理图中槽位背景的位置）
+                drawTexturedModalRect(xPos, yPos, 200, 0, 18, 18);
+
+                // 更新槽位位置以匹配绘制位置，确保鼠标点击和悬停检测区域正确
+                // xDisplayPosition和yDisplayPosition是Slot类中用于碰撞检测的字段
+                slot.xDisplayPosition = xPos - guiLeft + 1;
+                slot.yDisplayPosition = yPos - guiTop + 1;
             }
         }
     }
+
+    public int getPixelRGBA(ResourceLocation rl, int x, int y) {
+        try {
+            IResource resource = this.mc.getResourceManager().getResource(rl);
+
+            // 读取 PNG 文件为 BufferedImage
+            BufferedImage img = ImageIO.read(resource.getInputStream());
+
+            return img.getRGB(x, y);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return 0;
+        }
+    }
+
 
     private void drawPotionEffects() {
         int slotIndent = 26;
@@ -232,13 +306,13 @@ public class GuiPlayerExpanded extends GuiContainer implements INEIGuiHandler {
         ContainerPlayerExpanded expandedInventory = (ContainerPlayerExpanded) this.inventorySlots;
 
         // Check the last cached slot first, as it is the most likely one to be hovered out of all of them
-        if(tooltipIndexCache != -1) {
+        if (tooltipIndexCache != -1) {
             Slot slot = expandedInventory.getBaubleSlot(tooltipIndexCache);
 
             // Cursor inside slot rect
             if (this.func_146978_c(slot.xDisplayPosition, slot.yDisplayPosition, 16, 16, mouseX, mouseY)) {
                 ItemStack stack = expandedInventory.baubles.getStackInSlot(tooltipIndexCache);
-                if(stack == null || stack.stackSize == 0) {
+                if (stack == null || stack.stackSize == 0) {
                     // drawHoveringText with default font
                     func_146283_a(tooltipCache, mouseX, mouseY);
                     return;
@@ -248,7 +322,7 @@ public class GuiPlayerExpanded extends GuiContainer implements INEIGuiHandler {
 
         // Check the other slots
         for (int slotIndex = 0; slotIndex < expandedInventory.getBaubleSlotCount(); slotIndex++) {
-            if(slotIndex == tooltipIndexCache) continue;
+            if (slotIndex == tooltipIndexCache) continue;
 
             Slot slot = expandedInventory.getBaubleSlot(slotIndex);
 
@@ -256,7 +330,7 @@ public class GuiPlayerExpanded extends GuiContainer implements INEIGuiHandler {
             if (!this.func_146978_c(slot.xDisplayPosition, slot.yDisplayPosition, 16, 16, mouseX, mouseY)) continue;
 
             ItemStack stack = expandedInventory.baubles.getStackInSlot(slotIndex);
-            if(stack != null && stack.stackSize > 0) continue; // Only show tooltip on empty slots
+            if (stack != null && stack.stackSize > 0) continue; // Only show tooltip on empty slots
 
             tooltipIndexCache = slotIndex;
 
@@ -274,14 +348,13 @@ public class GuiPlayerExpanded extends GuiContainer implements INEIGuiHandler {
                 boolean fitsInSlot = false;
                 if (heldItem.getItem() instanceof IBaubleExpanded baubleExpandedItem) {
                     String[] itemBaubleTypes = baubleExpandedItem.getBaubleTypes(heldItem);
-                    for(String itemBaubleType : itemBaubleTypes) {
+                    for (String itemBaubleType : itemBaubleTypes) {
                         if (slotType.equals(itemBaubleType)) {
                             fitsInSlot = true;
                             break;
                         }
                     }
-                }
-                else if(heldItem.getItem() instanceof IBauble baubleItem) {
+                } else if (heldItem.getItem() instanceof IBauble baubleItem) {
                     String itemBaubleType = BaubleExpandedSlots.getTypeFromBaubleType(baubleItem.getBaubleType(heldItem));
                     if (slotType.equals(itemBaubleType)) {
                         fitsInSlot = true;
@@ -302,61 +375,20 @@ public class GuiPlayerExpanded extends GuiContainer implements INEIGuiHandler {
     }
 
     private boolean needsScrollBars() {
-        return ((ContainerPlayerExpanded) this.inventorySlots).canScroll();
+        // 不再需要滚动条，因为我们使用多列布局
+        return false;
     }
 
     private void handleScrollbar(int mouseX, int mouseY) {
-        boolean leftMouseDown = Mouse.isButtonDown(0);
-
-        if (!this.wasClicking && leftMouseDown && isClickInScrollbar(mouseX, mouseY)) {
-            this.isScrolling = this.needsScrollBars();
-        }
-
-        if (!leftMouseDown) {
-            this.isScrolling = false;
-        }
-
-        this.wasClicking = leftMouseDown;
-
-        if (this.isScrolling) {
-            int scrollbarYStart = this.guiTop + 12;
-            int scrollbarYEnd = scrollbarYStart + 139;
-
-            this.currentScroll = ((float) (mouseY - scrollbarYStart) - 7.5F) /
-                ((float) (scrollbarYEnd - scrollbarYStart) - 15.0F);
-
-            if (this.currentScroll < 0.0F) {
-                this.currentScroll = 0.0F;
-            }
-            if (this.currentScroll > 1.0F) {
-                this.currentScroll = 1.0F;
-            }
-
-            ((ContainerPlayerExpanded) this.inventorySlots).scrollTo(this.currentScroll);
-        }
+        // 禁用滚动条处理逻辑，因为我们现在使用多列布局
+        return;
     }
 
     @Override
     public void handleMouseInput() {
         super.handleMouseInput();
-        int wheel = Mouse.getEventDWheel();
-        if (wheel == 0 || !this.needsScrollBars()) {
-            return;
-        }
-        if (!hasLwjgl3) {
-            // LWJGL2 reports different scroll values for every platform, 120 for one tick on Windows.
-            // LWJGL3 reports the delta in exact scroll ticks.
-            // Round away from zero to avoid dropping small scroll events
-            if (wheel > 0) {
-                wheel = Math.addExact(Math.addExact(wheel, 120), -1) / 120;
-            } else {
-                wheel = -(int) Math.addExact(Math.addExact(-wheel, 120), -1) / 120;
-            }
-        }
-        int i = BaubleExpandedSlots.slotsCurrentlyUsed();
-        this.currentScroll = (float) ((double) this.currentScroll - wheel / (double) i);
-        this.currentScroll = MathHelper.clamp_float(this.currentScroll, 0.0F, 1.0F);
-        ((ContainerPlayerExpanded) this.inventorySlots).scrollTo(this.currentScroll);
+        // 禁用鼠标滚轮滚动功能，因为我们现在使用多列布局
+        return;
     }
 
     @Override
@@ -368,14 +400,14 @@ public class GuiPlayerExpanded extends GuiContainer implements INEIGuiHandler {
         }
     }
 
-	@Override
-	protected void keyTyped(char par1, int keyCode) {
-		if (keyCode == Baubles.proxy.keyHandler.key.getKeyCode()) {
+    @Override
+    protected void keyTyped(char par1, int keyCode) {
+        if (keyCode == Baubles.proxy.keyHandler.key.getKeyCode()) {
             mc.thePlayer.closeScreen();
         } else {
-        	super.keyTyped(par1, keyCode);
+            super.keyTyped(par1, keyCode);
         }
-	}
+    }
 
     @Override
     protected void handleMouseClick(Slot slotIn, int slotId, int clickedButton, int clickType) {
@@ -467,7 +499,7 @@ public class GuiPlayerExpanded extends GuiContainer implements INEIGuiHandler {
             slotWidth = 36;
         }
         if (NEIClientConfig.ignorePotionOverlap()) {
-            return (new Rectangle4i( guiLeft - slotIndent, guiTop + 4, slotWidth, upperHeight + 4).intersects(new Rectangle4i(slotX, slotY, slotW, slotH)));
+            return (new Rectangle4i(guiLeft - slotIndent, guiTop + 4, slotWidth, upperHeight + 4).intersects(new Rectangle4i(slotX, slotY, slotW, slotH)));
         }
         int x = this.guiLeft - 124 - slotIndent;
         int y = this.guiTop;
@@ -481,14 +513,14 @@ public class GuiPlayerExpanded extends GuiContainer implements INEIGuiHandler {
         }
         Collection<PotionEffect> activePotionEffects = player.getActivePotionEffects();
         if (activePotionEffects.isEmpty()) {
-            return (new Rectangle4i( guiLeft - slotIndent, guiTop + 4, slotWidth, upperHeight + 4).intersects(new Rectangle4i(slotX, slotY, slotW, slotH)));
+            return (new Rectangle4i(guiLeft - slotIndent, guiTop + 4, slotWidth, upperHeight + 4).intersects(new Rectangle4i(slotX, slotY, slotW, slotH)));
         }
         int height = 33;
         if (activePotionEffects.size() > 5) {
             height = 132 / (activePotionEffects.size() - 1);
         }
         Rectangle4i slotRect = new Rectangle4i(slotX, slotY, slotW, slotH);
-        Rectangle4i baubleSlots = new Rectangle4i( guiLeft - slotIndent, guiTop + 4, slotWidth, upperHeight + 4);
+        Rectangle4i baubleSlots = new Rectangle4i(guiLeft - slotIndent, guiTop + 4, slotWidth, upperHeight + 4);
         for (PotionEffect effect : activePotionEffects) {
             Rectangle4i box = new Rectangle4i(x, y, 140, 32);
             box.include(baubleSlots);
